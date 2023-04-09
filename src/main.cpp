@@ -116,7 +116,7 @@ void drawStatusBar(int y, String updated, float batteryVoltage)
     }
 }
 
-void drawTempHum(int x, int y, float humidity, float temperature, const char *title)
+void drawRoom(int x, int y, float humidity, float temperature, const char *title, bool windowOpen)
 {
     int titleX = x + 50;
     int titleY = y - 20;
@@ -148,6 +148,15 @@ void drawTempHum(int x, int y, float humidity, float temperature, const char *ti
     char tempChar[10];
     snprintf(tempChar, sizeof(tempChar), "%0.1f °C", temperature);
     writeln((GFXfont *)&Roboto20, tempChar, &tempValX, &tempValY, framebuffer);
+
+    if (windowOpen) {
+        Rect_t windowArea = {
+            .x = titleX + 27,
+            .y = titleY - 38,
+            .width = open_window_width,
+            .height = open_window_height};
+        epd_copy_to_framebuffer(windowArea, (uint8_t *)open_window_data, framebuffer);
+    }
 }
 
 uint32_t getWifiChannel(String ssid)
@@ -207,7 +216,21 @@ DynamicJsonDocument retrieveData()
     String payload = http.getString();
     Serial.println(payload);
     DynamicJsonDocument doc(64 * 1024);
-    deserializeJson(doc, payload);
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (error)
+    {
+        http.begin(DASHBOARD_LOG_URL);
+        http.POST(error.c_str());
+        ESP.deepSleep(DISPLAY_REFRESH_RATE_SECS * 1e6);
+    }
+
+    if (doc.isNull())
+    {
+        http.begin(DASHBOARD_LOG_URL);
+        http.POST("document is null");
+        ESP.deepSleep(DISPLAY_REFRESH_RATE_SECS * 1e6);
+    }
 
     return doc;
 }
@@ -273,9 +296,9 @@ void draw(DynamicJsonDocument &doc)
         epd_draw_vline(x + 2 * width - 20 - i, statusEndY, roomSeperatorHeight, 0, framebuffer);
     }
 
-    drawTempHum(x + 40, 110, doc["Tent"]["humidity"].as<float>(), doc["Tent"]["temperature"].as<float>(), "Zelt");
-    drawTempHum(x + width + 40, 110, doc["LivingTemp"]["humidity"].as<float>(), doc["LivingTemp"]["temperature"].as<float>(), "Wohn");
-    drawTempHum(x + width + width + 40, 110, doc["Sleep"]["humidity"].as<float>(), doc["Sleep"]["temperature"].as<float>(), "Schlaf");
+    drawRoom(x + 40, 110, doc["Tent"]["humidity"].as<float>(), doc["Tent"]["temperature"].as<float>(), "Zelt", false);
+    drawRoom(x + width + 40, 110, doc["LivingTemp"]["humidity"].as<float>(), doc["LivingTemp"]["temperature"].as<float>(), "Wohn", doc["living-door-sensor"]["open"].as<bool>());
+    drawRoom(x + width + width + 40, 110, doc["Sleep"]["humidity"].as<float>(), doc["Sleep"]["temperature"].as<float>(), "Schlaf", doc["sleep-door-sensor"]["open"].as<bool>());
 
     // Weather h separator
     for (int i = 0; i < SEPERATOR_THICKNESS; i++)
