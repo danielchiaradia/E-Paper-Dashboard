@@ -29,46 +29,48 @@ long startAt = millis();
 int vref = 1100;
 
 RTC_DATA_ATTR int32_t channel = -1;
+RTC_DATA_ATTR uint8_t bssid[6];
 
-String translateIcon(String icon_id)
+const uint8_t * translateIcon(String icon_id)
 {
-    if (icon_id == "01d")
-        return "J"; // day, clear sky
-    if (icon_id == "02d")
-        return "F"; // day, few clouds
-    if (icon_id == "03d")
-        return "F"; // day, scattered clouds
-    if (icon_id == "04d")
-        return "F"; // day, broken clouds
-    if (icon_id == "09d")
-        return "G"; // day, shower rain
-    if (icon_id == "10d")
-        return "G"; // day, rain
-    if (icon_id == "11d")
-        return "I"; // day, thunderstorm
-    if (icon_id == "13d")
-        return "H"; // day, snow
-    if (icon_id == "50d")
-        return "C"; // day, mist
-    if (icon_id == "01n")
-        return "D"; // night, clear sky
-    if (icon_id == "02n")
-        return "E"; // night, few clouds
-    if (icon_id == "03n")
-        return "E"; // night, scattered clouds
-    if (icon_id == "04n")
-        return "E"; // night, broken clouds
-    if (icon_id == "09n")
-        return "G"; // night, shower rain
-    if (icon_id == "10n")
-        return "G"; // night, rain
-    if (icon_id == "11n")
-        return "I"; // night, thunderstorm
-    if (icon_id == "13n")
-        return "H"; // night, snow
-    if (icon_id == "50n")
-        return "C"; // night, mist
-    return "";      // not found for some reason
+    if (icon_id == "0d") 
+        return wi_day_sunny_data;
+    if (icon_id == "0n") 
+        return wi_night_clear_data;
+    if (icon_id == "1d" || icon_id == "2d") 
+        return wi_day_sunny_overcast_data;
+    if (icon_id == "1n" || icon_id == "2n") 
+        return wi_night_partly_cloudy_data;
+    if (icon_id == "3d") 
+        return wi_day_cloudy_data;
+    if (icon_id == "3n") 
+        return wi_night_cloudy_data;
+    if (icon_id == "45d" || icon_id == "48d") 
+        return wi_day_fog_data;
+    if (icon_id == "45n" || icon_id == "48n") 
+        return wi_night_fog_data;
+    if (icon_id == "51d" || icon_id == "53d" || icon_id == "55d" || icon_id == "56d" || icon_id == "57d") 
+        return wi_day_sprinkle_data;
+    if (icon_id == "51n" || icon_id == "53n" || icon_id == "55n" || icon_id == "56n" || icon_id == "57n") 
+        return wi_night_alt_sprinkle_data;
+    if (icon_id == "61d" || icon_id == "63d" || icon_id == "65d" || icon_id == "66d" || icon_id == "67d") 
+        return wi_day_rain_data;
+    if (icon_id == "61n" || icon_id == "63n" || icon_id == "65n" || icon_id == "66n" || icon_id == "67n") 
+        return wi_night_alt_rain_data;
+    if (icon_id == "71d" || icon_id == "73d" || icon_id == "75d" || icon_id == "77d" || icon_id == "85d") 
+        return wi_day_snow_data;
+    if (icon_id == "71n" || icon_id == "73n" || icon_id == "75n" || icon_id == "77n" || icon_id == "85n") 
+        return wi_night_snow_data;
+    if (icon_id == "80d" || icon_id == "81d" || icon_id == "82d") 
+        return wi_day_showers_data;
+    if (icon_id == "80n" || icon_id == "81n" || icon_id == "82n") 
+        return wi_night_alt_showers_data;
+    if (icon_id == "95d" || icon_id == "96d" || icon_id == "99d") 
+        return wi_day_lightning_data;
+    if (icon_id == "95n" || icon_id == "96n" || icon_id == "99n") 
+        return wi_night_alt_lightning_data;
+
+    return wi_day_sunny_data;
 }
 
 void drawStatusBar(int y, String updated, float batteryVoltage)
@@ -159,7 +161,7 @@ void drawRoom(int x, int y, float humidity, float temperature, const char *title
     }
 }
 
-uint32_t getWifiChannel(String ssid)
+uint8_t* getBSSID(String ssid)
 {
     int networksFound = WiFi.scanNetworks();
     int i;
@@ -167,16 +169,24 @@ uint32_t getWifiChannel(String ssid)
     {
         if (ssid == WiFi.SSID(i))
         {
-            return WiFi.channel(i);
+            return WiFi.BSSID(i);
         }
     }
-    return -1;
+    return NULL;
 }
 
 void connectToWifi()
 {
     WiFi.hostname(HOSTNAME);
     WiFi.mode(WIFI_STA);
+
+    IPAddress local_IP(192, 168, 178, 56);
+	IPAddress gateway(192, 168, 178, 1);
+	IPAddress subnet(255, 255, 255, 0);
+	WiFi.config(local_IP, gateway, subnet);
+	WiFi.setAutoConnect(true);
+	WiFi.setAutoReconnect(true);
+	WiFi.persistent(true);
 
     if (channel < 0)
     {
@@ -185,12 +195,14 @@ void connectToWifi()
     else
     {
         Logger.log("Connect with channel %i", channel);
+        Logger.log("Connect with BSSID %s", bssid);
         WiFi.begin(WIFI_SSID, WIFI_PASSWD, channel, bssid);
     }
 
     if (WiFi.waitForConnectResult() != WL_CONNECTED)
     {
         Logger.log("Could not connect to WiFi. Channel changed?");
+        channel = -1;
         WiFi.begin(WIFI_SSID, WIFI_PASSWD);
 
         if (WiFi.waitForConnectResult() != WL_CONNECTED)
@@ -200,7 +212,17 @@ void connectToWifi()
         }
     }
 
-    channel = WiFi.channel();
+    if (channel == -1) {
+        channel = WiFi.channel();
+        uint8_t* currentBssid = getBSSID(WIFI_SSID);
+
+        bssid[0] = currentBssid[0];
+        bssid[1] = currentBssid[1];
+        bssid[2] = currentBssid[2];
+        bssid[3] = currentBssid[3];
+        bssid[4] = currentBssid[4];
+        bssid[5] = currentBssid[5];
+    }
 
     Logger.log("...Connected! IP Address: %s", WiFi.localIP().toString().c_str());
     Logger.log("DNS IP Address: %s", WiFi.dnsIP().toString().c_str());
@@ -258,19 +280,26 @@ void drawHourForecast(DynamicJsonDocument &doc, int startY)
     {
         int hourX = 40 + (i * 180);
         // Icon
-        String sas = translateIcon(doc["weather"]["hourly"][i]["icon"].as<char *>());
-        writeln((GFXfont *)&WeatherIcons72, sas.c_str(), &hourX, &y, framebuffer);
+        Rect_t windowArea = {
+            .x = hourX + 5,
+            .y = y - 110,
+            .width = 142,
+            .height = 142};
+
+        const uint8_t* sas = translateIcon(doc["weather"]["hourly"][i]["icon"].as<char *>());
+        // writeln((GFXfont *)&WeatherIcons72, sas.c_str(), &hourX, &y, framebuffer);
+        epd_copy_to_framebuffer(windowArea, (uint8_t *)sas, framebuffer);
 
         // Time
         int timeY = startY + 50;
-        int timeX = hourX - 105;
+        int timeX = hourX + 28;
         writeln((GFXfont *)&Roboto20, doc["weather"]["hourly"][i]["time"].as<char *>(), &timeX, &timeY, framebuffer);
 
         // Propability
-        int propY = startY + 200;
-        int propX = hourX - 83;
+        int propY = startY + 210;
+        int propX = hourX + 50;
         char propability[10];
-        snprintf(propability, sizeof(propability), "%g %%", doc["weather"]["hourly"][i]["pop"].as<float>() * 100);
+        snprintf(propability, sizeof(propability), "%i %%", doc["weather"]["hourly"][i]["propability"].as<int>());
         writeln((GFXfont *)&Roboto12, propability, &propX, &propY, framebuffer);
     }
 }
@@ -296,9 +325,9 @@ void draw(DynamicJsonDocument &doc)
         epd_draw_vline(x + 2 * width - 20 - i, statusEndY, roomSeperatorHeight, 0, framebuffer);
     }
 
-    drawRoom(x + 40, 110, doc["Tent"]["humidity"].as<float>(), doc["Tent"]["temperature"].as<float>(), "Zelt", false);
-    drawRoom(x + width + 40, 110, doc["LivingTemp"]["humidity"].as<float>(), doc["LivingTemp"]["temperature"].as<float>(), "Wohn", doc["living-door-sensor"]["open"].as<bool>());
-    drawRoom(x + width + width + 40, 110, doc["Sleep"]["humidity"].as<float>(), doc["Sleep"]["temperature"].as<float>(), "Schlaf", doc["sleep-door-sensor"]["open"].as<bool>());
+    drawRoom(x + 40, 110, doc["outdoor-temp-sensor"]["humidity"].as<float>(), doc["outdoor-temp-sensor"]["temperature"].as<float>(), "Balkon", false);
+    drawRoom(x + width + 40, 110, doc["living-temp-sensor"]["humidity"].as<float>(), doc["living-temp-sensor"]["temperature"].as<float>(), "Wohn", false);
+    drawRoom(x + width + width + 40, 110, doc["sleep-temp-sensor"]["humidity"].as<float>(), doc["sleep-temp-sensor"]["temperature"].as<float>(), "Schlaf", false);
 
     // Weather h separator
     for (int i = 0; i < SEPERATOR_THICKNESS; i++)

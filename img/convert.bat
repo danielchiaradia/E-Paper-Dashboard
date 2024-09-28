@@ -1,0 +1,1 @@
+FOR %%A IN (*.svg) DO "C:\Program Files\Inkscape\bin\inkscape" %%A --export-type=png --export-filename=%%A.png -w 72
